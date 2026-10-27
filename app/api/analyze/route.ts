@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { searchFactCheckClaims } from '@/lib/factCheckApi';
+import { analyzeWithOllama } from '@/lib/ollamaApi';
 import { analyzeWithGemini } from '@/lib/geminiApi';
 import { analyzeWithNvidia } from '@/lib/nvidiaApi';
 import { generateHeuristicAnalysis } from '@/lib/mockAnalyzer';
@@ -39,12 +40,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------
-    // Tier 2: AI Contextual Reasoning (NVIDIA NIM or Google Gemini)
+    // Tier 2: AI Contextual Reasoning (Ollama Local, NVIDIA NIM, or Gemini)
     // ----------------------------------------------------
     let analysisResult: AnalysisResult | null = null;
 
-    // Try NVIDIA NIM first if an NVIDIA key is available
-    if (nvidiaKey) {
+    // 1. Try local open-source Ollama first
+    try {
+      console.log('[API] Checking for local Ollama open-source engine...');
+      analysisResult = await analyzeWithOllama(cleanText, factCheckClaims);
+    } catch (err) {
+      console.warn('Tier 2 Ollama analysis skipped or failed:', err);
+    }
+
+    // 2. Try NVIDIA NIM if Ollama didn't respond and NVIDIA key is present
+    if (!analysisResult && nvidiaKey) {
       try {
         console.log('[API] Running analysis with NVIDIA NIM...');
         analysisResult = await analyzeWithNvidia(cleanText, factCheckClaims, nvidiaKey);
@@ -53,7 +62,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fall back to Gemini if NVIDIA didn't run or failed
+    // 3. Fall back to Gemini if neither Ollama nor NVIDIA completed
     if (!analysisResult) {
       try {
         analysisResult = await analyzeWithGemini(cleanText, factCheckClaims, userGeminiKey);
